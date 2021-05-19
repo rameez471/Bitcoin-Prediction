@@ -1,4 +1,8 @@
 import pandas as pd
+from sklearn import preprocessing
+from collections import deque
+import numpy as np
+import random
 
 SEQ_LEN = 60
 FUTURE_PERIOD_PREDICT = 3
@@ -10,6 +14,28 @@ def classify(current, future):
         return 1
     else:
         return 0
+
+def preprocess(df):
+    df = df.drop('future',1)
+
+    for col in df.columns:
+        if col != 'target':
+            df[col] = df[col].pct_change()
+            df.dropna(inplace=True)
+            df[col] = preprocessing.scale(df[col].values)
+
+    df.dropna(inplace=True)
+    
+    sequential_data = []
+    prev_days = deque(maxlen=SEQ_LEN)
+
+    for i in df.values:
+        prev_days.append([n for n in i[:-1]])
+        
+        if len(prev_days) == SEQ_LEN:
+            sequential_data.append([np.array(prev_days),i[-1]])
+
+    random.shuffle(sequential_data)
 
 
 main_df = pd.DataFrame()
@@ -31,7 +57,14 @@ for curr in curr_list:
         main_df = main_df.join(df)
 
 main_df['future'] = main_df[f'{CURR_TO_PREDICT}_close'].shift(-FUTURE_PERIOD_PREDICT)
-
 main_df['target'] = list(map(classify, main_df[f'{CURR_TO_PREDICT}_close'], main_df['future']))
 
-print(main_df.head(10))
+
+times = sorted(main_df.index.values)
+last_5pct = times[-int(0.05*len(times))]
+
+validation_main_df = main_df[(main_df.index >= last_5pct)]
+main_df = main_df[(main_df.index < last_5pct)]
+
+# train_x, train_y = preprocess(main_df)
+# validation_x, validation_y = preprocess(validation_main_df)
