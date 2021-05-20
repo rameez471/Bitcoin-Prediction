@@ -3,10 +3,18 @@ from sklearn import preprocessing
 from collections import deque
 import numpy as np
 import random
+import time
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, LSTM, BatchNormalization
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
 
 SEQ_LEN = 60
 FUTURE_PERIOD_PREDICT = 3
 CURR_TO_PREDICT = 'BTC-USD'
+EPOCHS = 10
+BATCH_SIZE = 64
+NAME = f'{SEQ_LEN}-{FUTURE_PERIOD_PREDICT}-PRED-{int(time.time())}'
 
 
 def classify(current, future):
@@ -65,7 +73,7 @@ def preprocess(df):
         X.append(seq)
         y.append(target)
 
-    return np.array(X), y
+    return np.array(X), np.array(y)
 
 
 main_df = pd.DataFrame()
@@ -99,6 +107,52 @@ main_df = main_df[(main_df.index < last_5pct)]
 train_x, train_y = preprocess(main_df)
 validation_x, validation_y = preprocess(validation_main_df)
 
-print(f"train data: {len(train_x)} validation: {len(validation_x)}")
-print(f"Dont buys: {train_y.count(0)}, buys: {train_y.count(1)}")
-print(f"VALIDATION Dont buys: {validation_y.count(0)}, buys: {validation_y.count(1)}")
+# print(f"train data: {len(train_x)} validation: {len(validation_x)}")
+# print(f"Dont buys: {train_y.count(0)}, buys: {train_y.count(1)}")
+# print(f"VALIDATION Dont buys: {validation_y.count(0)}, buys: {validation_y.count(1)}")
+
+
+model = Sequential()
+
+model.add(LSTM(128, input_shape=(train_x.shape[1:]), return_sequences=True))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+
+model.add(LSTM(128, return_sequences=True))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+
+model.add(LSTM(128))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+
+model.add(Dense(32, activation='relu'))
+model.add(Dropout(0.2))
+
+model.add(Dense(2, activation='softmax'))
+
+opt = tf.keras.optimizers.Adam(lr=0.001, decay=1e-6)
+model.compile(
+    loss='sparse_categorical_crossentropy',
+    optimizer=opt,
+    metrics=['accuracy']
+)
+
+tensorboard = TensorBoard(log_dir = f'logs\{NAME}')
+
+filepath = "RNN_Final-{epoch:02d}-{val_acc:.3f}"  # unique file name that will include the epoch and the validation acc for that epoch
+checkpoint = ModelCheckpoint("models/{}.model".format(filepath, monitor='val_acc', verbose=1, save_best_only=True, mode='max'))
+
+history = model.fit(
+    train_x, train_y,
+    batch_size = BATCH_SIZE,
+    epochs = EPOCHS,
+    validation_data = (validation_x, validation_y),
+    callbacks = [tensorboard, checkpoint],
+)
+
+score = model.evaluate(validation_x, validation_y, verbose=0)
+print('Test loss:', score[0])
+print('Test accuracy:', score[1])
+# Save model
+model.save("models/{}".format(NAME))
